@@ -9,6 +9,29 @@ let
   configFile = pkgs.writeText "config.yaml" (builtins.toJSON cfg.config);
   usersFile = pkgs.writeText "users.json" (builtins.toJSON cfg.users);
   inventree = pkgs.inventree;
+
+  # Pre-compute SystemdDirectories to create the directories if they do not exists.
+  singletonIfPrefix = prefix: str:
+    optional (hasPrefix prefix str) (removePrefix prefix str);
+
+  systemdDir = prefix: concatStringsSep " " ([]
+    ++ (singletonIfPrefix prefix cfg.dataDir)
+    ++ (singletonIfPrefix prefix cfg.config.static_root)
+    ++ (singletonIfPrefix prefix cfg.config.media_root)
+    ++ (singletonIfPrefix prefix cfg.config.backup_dir)
+  );
+
+  maybeSystemdDir = prefix:
+    let dirs = systemdDir prefix; in
+    mkIf (dirs != "") dirs;
+
+  systemdDirectories = {
+    RuntimeDirectory= maybeSystemdDir "/run/";
+    StateDirectory= maybeSystemdDir "/var/lib/";
+    CacheDirectory= maybeSystemdDir "/var/cache/";
+    LogsDirectory= maybeSystemdDir "/var/log/";
+    ConfigurationDirectory= maybeSystemdDir "/etc/";
+  };
 in
 
 {
@@ -142,7 +165,7 @@ in
       environment = {
         INVENTREE_CONFIG_FILE = toString cfg.configPath;
       };
-      serviceConfig = {
+      serviceConfig = systemdDirectories // {
         User = defaultUser;
         Group = defaultGroup;
         ExecStartPre =
@@ -174,7 +197,7 @@ in
       environment = {
         INVENTREE_CONFIG_FILE = toString cfg.configPath;
       };
-      serviceConfig = {
+      serviceConfig = systemdDirectories // {
         User = defaultUser;
         Group = defaultGroup;
         ExecStart = ''
